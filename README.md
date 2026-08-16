@@ -118,6 +118,56 @@ voxtype-mode status   Active mode, model and VRAM usage (default).
 Switching restarts the daemon and waits for the new model to finish loading before
 returning, so when the command exits, dictation is genuinely ready.
 
+## Keybinding (Omarchy / Hyprland)
+
+You switch modes *before* doing something else — launching a game, joining a call — so
+opening a terminal for it defeats the purpose. Put it on a key.
+
+**Suggested: `SUPER + CTRL + SHIFT + X`.**
+
+Omarchy already keeps voxtype on `X`: `SUPER + CTRL + X` is "Toggle dictation" (and `F9`
+is push-to-talk). Adding `SHIFT` to the dictation toggle gives you "toggle *how*
+dictation runs" on the same key — the same shape Omarchy uses elsewhere, where
+`SUPER + SPACE` opens the launcher and `SUPER + CTRL + SHIFT + SPACE` opens the theme
+menu. Nothing in stock Omarchy claims the combo.
+
+Add it to `~/.config/hypr/bindings.lua`:
+
+```lua
+o.bind("SUPER + CTRL + SHIFT + X", "Toggle voxtype CPU/GPU mode",
+  [[bash -c 'id=$(notify-send -a voxtype -p "voxtype" "switching mode…"); notify-send -a voxtype -r "$id" "voxtype" "$(voxtype-mode toggle 2>&1)"']])
+```
+
+Hyprland reloads on save; `hyprctl reload && hyprctl configerrors` confirms it, and
+`omarchy menu keybindings --print` should now list the binding.
+
+The `notify-send` wrapper is the point of the whole line. Launched from a keybinding there
+is no terminal to print to, and the switch is not instant — it restarts the daemon and
+waits for the model to load. So the first notification fires *before* the switch to say it
+started, and the second replaces it with the result: mode, model and VRAM.
+
+Replacing rather than stacking is what `-p` and `-r` do: `-p` prints the id of the
+notification just posted, `-r` reposts over that id. Both are plain `notify-send`, so any
+spec-compliant daemon handles it. The `2>&1` matters too — if the switch fails (missing
+model, incompatible binary) the error text ends up in the notification instead of
+disappearing with the stderr of a process that has no terminal.
+
+The command is `voxtype-mode toggle` and not a full path because `install.sh` puts it in
+`~/.local/bin`, which is already on the Hyprland session's `PATH`.
+
+<details>
+<summary>Omarchy before 4.0 (<code>bindings.conf</code> instead of <code>bindings.lua</code>)</summary>
+
+```ini
+bind = SUPER CTRL SHIFT, X, exec, bash -c 'id=$(notify-send -a voxtype -p "voxtype" "switching mode…"); notify-send -a voxtype -r "$id" "voxtype" "$(voxtype-mode toggle 2>&1)"'
+```
+
+</details>
+
+If you prefer explicit modes over a toggle, bind `voxtype-mode cpu` and `voxtype-mode gpu`
+to two keys instead — both are idempotent, so pressing the one you are already in just
+restarts the daemon in the same mode.
+
 ## Configuration
 
 `~/.config/voxtype/mode.conf` (all optional):

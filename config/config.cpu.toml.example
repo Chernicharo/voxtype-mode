@@ -24,6 +24,7 @@ volume = 0.7
 # Multilingual and small enough to stay usable without a GPU.
 # Use "small.en" instead if you only ever dictate in English.
 model = "small"
+# Your dictation language (ISO 639-1). "auto" lets Whisper detect it.
 language = "pt"
 translate = false
 

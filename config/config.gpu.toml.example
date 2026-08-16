@@ -25,6 +25,7 @@ volume = 0.7
 # large-v3-turbo loads in well under a second on GPU and is the best
 # accuracy-per-millisecond option for non-English dictation.
 model = "large-v3-turbo"
+# Your dictation language (ISO 639-1). "auto" lets Whisper detect it.
 language = "pt"
 translate = false
 
