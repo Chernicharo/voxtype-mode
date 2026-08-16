@@ -1,0 +1,8 @@
+# Real configs live in ~/.config/voxtype/ — only the .example files belong here.
+config/mode.conf
+config/config.cpu.toml
+config/config.gpu.toml
+
+*.swp
+*~
+.DS_Store

@@ -1,0 +1,16 @@
+# Optional overrides for voxtype-mode.
+# Copy to ~/.config/voxtype/mode.conf — everything here has a sane default.
+
+# Mode used when no mode has been chosen in the current session, i.e. right
+# after every boot or logout. "cpu" keeps VRAM free by default.
+DEFAULT_MODE=cpu
+
+# Where the voxtype binary variants live.
+#VOXTYPE_LIB_DIR=/usr/lib/voxtype
+
+# Force specific binaries instead of auto-detecting them.
+# Auto-detection picks voxtype-avx512 only when the CPU actually reports
+# avx512f (the build ships regardless and dies with SIGILL otherwise), then
+# falls back to voxtype-avx2; for GPU it tries vulkan, then cuda, then native.
+#CPU_BINARY=/usr/lib/voxtype/voxtype-avx2
+#GPU_BINARY=/usr/lib/voxtype/voxtype-vulkan

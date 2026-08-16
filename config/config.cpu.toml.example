@@ -1,0 +1,42 @@
+# voxtype — CPU mode (light / gaming)
+#
+# Copy to ~/.config/voxtype/config.cpu.toml
+# Runs on the CPU build and never touches the GPU: zero VRAM held.
+
+state_file = "auto"
+
+[hotkey]
+# Hotkeys are bound in the compositor (Omarchy binds F9 and SUPER+CTRL+X).
+enabled = false
+
+[audio]
+device = "default"
+sample_rate = 16000
+max_duration_secs = 180
+pause_media = true
+
+[audio.feedback]
+enabled = true
+theme = "subtle"
+volume = 0.7
+
+[whisper]
+# Multilingual and small enough to stay usable without a GPU.
+# Use "small.en" instead if you only ever dictate in English.
+model = "small"
+language = "pt"
+translate = false
+
+# Leave headroom for whatever else is running (a game, a compile). Drop this
+# line to let voxtype use every core.
+threads = 4
+
+[output]
+mode = "type"
+fallback_to_clipboard = true
+type_delay_ms = 1
+
+[output.notification]
+on_recording_start = false
+on_recording_stop = false
+on_transcription = false

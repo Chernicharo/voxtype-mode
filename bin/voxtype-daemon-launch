@@ -1,0 +1,52 @@
+#!/bin/bash
+# Picks the voxtype daemon binary and config file for the active mode.
+#
+# systemd runs this instead of `voxtype daemon` (see systemd/mode.conf drop-in).
+# The active mode lives in $XDG_RUNTIME_DIR, which is wiped on every boot and
+# logout, so the daemon falls back to DEFAULT_MODE on a fresh session with no
+# cleanup needed.
+#
+# Switch modes with: voxtype-mode cpu|gpu|toggle
+
+set -e
+
+CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/voxtype"
+
+# Optional user overrides: DEFAULT_MODE, VOXTYPE_LIB_DIR, CPU_BINARY, GPU_BINARY
+[[ -r $CONFIG_DIR/mode.conf ]] && . "$CONFIG_DIR/mode.conf"
+
+LIB_DIR="${VOXTYPE_LIB_DIR:-/usr/lib/voxtype}"
+MODE_FILE="${XDG_RUNTIME_DIR:-/run/user/$UID}/voxtype-mode"
+
+mode="${DEFAULT_MODE:-cpu}"
+[[ -r $MODE_FILE ]] && read -r mode <"$MODE_FILE"
+[[ $mode == gpu ]] || mode=cpu
+
+if [[ $mode == gpu ]]; then
+  binary="${GPU_BINARY:-}"
+  if [[ -z $binary ]]; then
+    for candidate in voxtype-vulkan voxtype-cuda voxtype-native; do
+      [[ -x $LIB_DIR/$candidate ]] && { binary="$LIB_DIR/$candidate"; break; }
+    done
+  fi
+else
+  binary="${CPU_BINARY:-}"
+  if [[ -z $binary ]]; then
+    # The avx512 build is shipped even on CPUs that cannot run it — starting it
+    # there dies with SIGILL, so gate it on the actual instruction set.
+    if grep -qm1 avx512f /proc/cpuinfo && [[ -x $LIB_DIR/voxtype-avx512 ]]; then
+      binary="$LIB_DIR/voxtype-avx512"
+    elif [[ -x $LIB_DIR/voxtype-avx2 ]]; then
+      binary="$LIB_DIR/voxtype-avx2"
+    fi
+  fi
+fi
+
+config="$CONFIG_DIR/config.$mode.toml"
+
+# Fall back to whatever the package installed rather than leaving dictation dead:
+# the unit sets Restart=on-failure, so a bad path here means an endless respawn.
+[[ -n $binary && -x $binary ]] || binary=$(command -v voxtype)
+[[ -r $config ]] || config="$CONFIG_DIR/config.toml"
+
+exec "$binary" --config "$config" daemon

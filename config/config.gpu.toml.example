@@ -1,0 +1,39 @@
+# voxtype — GPU mode (maximum accuracy)
+#
+# Copy to ~/.config/voxtype/config.gpu.toml
+# Runs on the GPU build. The model stays resident in VRAM for as long as the
+# daemon runs — roughly 1.5 GB for large-v3-turbo.
+
+state_file = "auto"
+
+[hotkey]
+# Hotkeys are bound in the compositor (Omarchy binds F9 and SUPER+CTRL+X).
+enabled = false
+
+[audio]
+device = "default"
+sample_rate = 16000
+max_duration_secs = 180
+pause_media = true
+
+[audio.feedback]
+enabled = true
+theme = "subtle"
+volume = 0.7
+
+[whisper]
+# large-v3-turbo loads in well under a second on GPU and is the best
+# accuracy-per-millisecond option for non-English dictation.
+model = "large-v3-turbo"
+language = "pt"
+translate = false
+
+[output]
+mode = "type"
+fallback_to_clipboard = true
+type_delay_ms = 1
+
+[output.notification]
+on_recording_start = false
+on_recording_stop = false
+on_transcription = false

@@ -1,0 +1,94 @@
+#!/bin/bash
+# Switch the voxtype daemon between a light CPU mode and an accurate GPU mode.
+#
+#   cpu  — CPU build + a small model   → 0 MB of VRAM (use while gaming)
+#   gpu  — GPU build + a large model   → best accuracy, holds VRAM while running
+#
+# No sudo: only the systemd *user* service is touched. The active mode is stored
+# in $XDG_RUNTIME_DIR, so every boot starts from DEFAULT_MODE again.
+
+set -euo pipefail
+
+CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/voxtype"
+[[ -r $CONFIG_DIR/mode.conf ]] && . "$CONFIG_DIR/mode.conf"
+
+MODE_FILE="${XDG_RUNTIME_DIR:-/run/user/$UID}/voxtype-mode"
+DEFAULT_MODE="${DEFAULT_MODE:-cpu}"
+
+usage() {
+  cat <<'USAGE'
+Usage: voxtype-mode [cpu|gpu|toggle|status]
+
+  cpu      Small model on the CPU. Frees all VRAM — use before gaming.
+  gpu      Large model on the GPU. Best accuracy.
+  toggle   Switch to the other mode.
+  status   Show active mode, model and VRAM usage (default).
+USAGE
+}
+
+current_mode() {
+  local mode=$DEFAULT_MODE
+  [[ -r $MODE_FILE ]] && read -r mode <"$MODE_FILE" || true
+  [[ $mode == gpu ]] && echo gpu || echo cpu
+}
+
+model_for() {
+  awk -F'"' '/^[[:space:]]*model[[:space:]]*=/{print $2; exit}' \
+    "$CONFIG_DIR/config.$1.toml" 2>/dev/null || true
+}
+
+vram_line() {
+  command -v nvidia-smi >/dev/null 2>&1 || return 0
+  local pid used free
+  pid=$(systemctl --user show -p MainPID --value voxtype 2>/dev/null || echo 0)
+  used=$(nvidia-smi --query-compute-apps=pid,used_memory --format=csv,noheader,nounits 2>/dev/null |
+         awk -F', ' -v p="$pid" '$1 == p { print $2 }')
+  free=$(nvidia-smi --query-gpu=memory.free --format=csv,noheader,nounits 2>/dev/null | head -1)
+  echo "voxtype VRAM: ${used:-0} MiB   |   GPU free: ${free:-?} MiB"
+}
+
+apply() {
+  local mode=$1 invocation waited=0
+
+  printf '%s\n' "$mode" >"$MODE_FILE"
+  systemctl --user restart voxtype
+
+  # Scope the log to THIS run. Filtering by time instead would match the
+  # "ready for voice input" line from the previous run and report success
+  # before the new model has actually loaded.
+  invocation=$(systemctl --user show -p InvocationID --value voxtype)
+
+  until journalctl --user "_SYSTEMD_INVOCATION_ID=$invocation" --no-pager 2>/dev/null |
+        grep -q "ready for voice input"; do
+    # A missing model or an incompatible binary kills the service; fail fast
+    # instead of burning the whole timeout.
+    if [[ $(systemctl --user is-active voxtype) == failed ]]; then
+      echo "voxtype failed to start in $mode mode:" >&2
+      journalctl --user "_SYSTEMD_INVOCATION_ID=$invocation" --no-pager 2>/dev/null |
+        grep -iE "error|not found" | head -5 >&2
+      exit 1
+    fi
+    if ((waited++ >= 60)); then
+      echo "voxtype did not become ready in time — check: journalctl --user -u voxtype -n 30" >&2
+      exit 1
+    fi
+    sleep 0.5
+  done
+
+  echo "voxtype → ${mode^^} mode (model: $(model_for "$mode"))"
+  vram_line
+}
+
+case "${1:-status}" in
+  cpu|gpu) apply "$1" ;;
+  toggle)  [[ $(current_mode) == gpu ]] && apply cpu || apply gpu ;;
+  status)
+    mode=$(current_mode)
+    echo "Mode:    ${mode^^}"
+    echo "Service: $(systemctl --user is-active voxtype 2>/dev/null || echo unknown)"
+    echo "Model:   $(model_for "$mode")"
+    vram_line
+    ;;
+  -h|--help|help) usage ;;
+  *) usage >&2; exit 1 ;;
+esac
