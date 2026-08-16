@@ -77,7 +77,7 @@ change to a normal path in `mode.conf`.
 ## Install
 
 ```bash
-git clone <this-repo> ~/personal/voxtype-mode
+git clone https://github.com/Chernicharo/voxtype-mode ~/personal/voxtype-mode
 cd ~/personal/voxtype-mode
 ./install.sh
 ```
