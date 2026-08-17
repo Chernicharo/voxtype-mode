@@ -77,13 +77,17 @@ vram_line() {
 # Absent numbers are emitted as JSON null rather than 0, so a machine reader can
 # tell "no GPU visible" apart from "GPU holding nothing".
 status_json() {
-  local mode model service
+  local mode service cpu_model gpu_model
   mode=$(current_mode)
-  model=$(model_for "$mode")
   service=$(systemctl --user is-active voxtype 2>/dev/null || echo unknown)
+  # Both models, not just the active one: the bar widget offers a choice
+  # between the two modes and names the model each one would load.
+  cpu_model=$(model_for cpu)
+  gpu_model=$(model_for gpu)
   read_vram
-  printf '{"mode":"%s","model":"%s","service":"%s","vram_mb":%s,"gpu_free_mb":%s}\n' \
-    "$mode" "$model" "$service" \
+  printf '{"mode":"%s","model":"%s","models":{"cpu":"%s","gpu":"%s"},"service":"%s","vram_mb":%s,"gpu_free_mb":%s}\n' \
+    "$mode" "$( [[ $mode == gpu ]] && echo "$gpu_model" || echo "$cpu_model" )" \
+    "$cpu_model" "$gpu_model" "$service" \
     "$( ((HAS_GPU)) && echo "$VRAM_USED" || echo null )" \
     "$( ((HAS_GPU)) && echo "$VRAM_FREE" || echo null )"
 }
