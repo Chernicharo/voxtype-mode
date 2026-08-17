@@ -113,7 +113,17 @@ voxtype-mode cpu      Small model on the CPU. Frees all VRAM.
 voxtype-mode gpu      Large model on the GPU. Best accuracy.
 voxtype-mode toggle   Switch to the other mode.
 voxtype-mode status   Active mode, model and VRAM usage (default).
+
+voxtype-mode status --json   The same, machine-readable.
 ```
+
+```console
+$ voxtype-mode status --json
+{"mode":"cpu","model":"small","service":"active","vram_mb":0,"gpu_free_mb":6396}
+```
+
+`vram_mb` and `gpu_free_mb` are `null` when `nvidia-smi` is absent — distinct from `0`,
+which means the GPU is genuinely holding nothing.
 
 Switching restarts the daemon and waits for the new model to finish loading before
 returning, so when the command exits, dictation is genuinely ready.
