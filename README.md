@@ -168,6 +168,19 @@ If you prefer explicit modes over a toggle, bind `voxtype-mode cpu` and `voxtype
 to two keys instead — both are idempotent, so pressing the one you are already in just
 restarts the daemon in the same mode.
 
+## Omarchy bar widget
+
+If you would rather click than press a key, there is a companion Omarchy plugin that puts
+the current mode in the status bar and switches on click:
+
+```bash
+omarchy plugin add https://github.com/Chernicharo/omarchy-plugin-voxtype-mode --enable
+```
+
+It is a thin front end — it reads `voxtype-mode status --json` and calls `voxtype-mode
+toggle`, so the widget, the keybinding and the terminal all stay in sync. See
+[omarchy-plugin-voxtype-mode](https://github.com/Chernicharo/omarchy-plugin-voxtype-mode).
+
 ## Configuration
 
 `~/.config/voxtype/mode.conf` (all optional):
