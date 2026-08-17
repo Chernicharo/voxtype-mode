@@ -133,6 +133,10 @@ returning, so when the command exits, dictation is genuinely ready.
 You switch modes *before* doing something else — launching a game, joining a call — so
 opening a terminal for it defeats the purpose. Put it on a key.
 
+> If you install the [bar widget](#omarchy-bar-widget), bind to it instead — the switch
+> then reports itself on the bar icon rather than through a notification. Same key, and
+> the widget README has the one-line binding.
+
 **Suggested: `SUPER + CTRL + SHIFT + X`.**
 
 Omarchy already keeps voxtype on `X`: `SUPER + CTRL + X` is "Toggle dictation" (and `F9`
