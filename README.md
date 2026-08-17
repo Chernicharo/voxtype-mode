@@ -115,11 +115,21 @@ voxtype-mode toggle   Switch to the other mode.
 voxtype-mode status   Active mode, model and VRAM usage (default).
 
 voxtype-mode status --json   The same, machine-readable.
+
+voxtype-mode models                        Whisper models installed here.
+voxtype-mode set-model <cpu|gpu> <model>   Point a mode at one of them.
+voxtype-mode set-language <cpu|gpu|all> <lang>
+voxtype-mode config <cpu|gpu>              Print a mode's config path.
 ```
+
+`set-model` and `set-language` restart the daemon when they change the mode you are
+currently in — voxtype reads the model once, at startup, so without the restart the config
+and the running daemon would disagree. Changing the *other* mode is just a file write.
 
 ```console
 $ voxtype-mode status --json
-{"mode":"cpu","model":"small","service":"active","vram_mb":0,"gpu_free_mb":6396}
+{"mode":"cpu","model":"small","models":{"cpu":"small","gpu":"large-v3-turbo"},
+ "language":"pt","service":"active","vram_mb":0,"gpu_free_mb":6396}
 ```
 
 `vram_mb` and `gpu_free_mb` are `null` when `nvidia-smi` is absent — distinct from `0`,

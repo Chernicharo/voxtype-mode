@@ -14,19 +14,65 @@ CONFIG_DIR="${XDG_CONFIG_HOME:-$HOME/.config}/voxtype"
 
 MODE_FILE="${XDG_RUNTIME_DIR:-/run/user/$UID}/voxtype-mode"
 DEFAULT_MODE="${DEFAULT_MODE:-cpu}"
+MODEL_DIR="${VOXTYPE_MODEL_DIR:-${XDG_DATA_HOME:-$HOME/.local/share}/voxtype/models}"
 
 usage() {
   cat <<'USAGE'
 Usage: voxtype-mode [cpu|gpu|toggle|status] [--json]
+       voxtype-mode models [--json]
+       voxtype-mode set-model <cpu|gpu> <model>
+       voxtype-mode set-language <cpu|gpu|all> <lang>
+       voxtype-mode config <cpu|gpu>
 
   cpu      Small model on the CPU. Frees all VRAM — use before gaming.
   gpu      Large model on the GPU. Best accuracy.
   toggle   Switch to the other mode.
   status   Show active mode, model and VRAM usage (default).
 
-  --json   With 'status', print machine-readable output instead of text.
+  models        List the Whisper models installed on this machine.
+  set-model     Point a mode at one of them. Restarts the daemon when the
+                mode being changed is the active one, since the model is
+                only read at startup.
+  set-language  Set a mode's dictation language (ISO 639-1, or "auto").
+                Use "all" to set both modes at once.
+  config        Print the path of a mode's config file.
+
+  --json   With 'status' or 'models', print machine-readable output.
            Numeric fields are null when nvidia-smi is unavailable.
 USAGE
+}
+
+require_mode() {
+  case "${1:-}" in
+    cpu|gpu) ;;
+    *) echo "expected mode 'cpu' or 'gpu', got '${1:-}'" >&2; exit 1 ;;
+  esac
+}
+
+# Read the model directory rather than parsing `voxtype setup model --list`:
+# that output is prose meant for humans and has already changed shape once.
+list_models() {
+  local f name
+  for f in "$MODEL_DIR"/ggml-*.bin; do
+    [[ -e $f ]] || continue
+    name=${f##*/ggml-}
+    printf '%s\n' "${name%.bin}"
+  done
+}
+
+set_key() {
+  local mode=$1 key=$2 value=$3 config
+  config="$CONFIG_DIR/config.$mode.toml"
+  [[ -w $config ]] || { echo "cannot write $config" >&2; exit 1; }
+
+  # Rewrite in place if the key is there, append to [whisper] if it is not.
+  if grep -qE "^[[:space:]]*$key[[:space:]]*=" "$config"; then
+    sed -i -E "s|^[[:space:]]*$key[[:space:]]*=.*|$key = \"$value\"|" "$config"
+  elif grep -qE '^\[whisper\]' "$config"; then
+    sed -i -E "/^\[whisper\]/a $key = \"$value\"" "$config"
+  else
+    printf '\n[whisper]\n%s = "%s"\n' "$key" "$value" >>"$config"
+  fi
 }
 
 current_mode() {
@@ -35,8 +81,13 @@ current_mode() {
   [[ $mode == gpu ]] && echo gpu || echo cpu
 }
 
-model_for() {
-  awk -F'"' '/^[[:space:]]*model[[:space:]]*=/{print $2; exit}' \
+model_for() { value_for "$1" model; }
+
+# Pulls a quoted scalar out of a mode's config. Good enough for the handful of
+# keys this script touches, and avoids a TOML parser dependency.
+value_for() {
+  awk -F'"' -v key="$2" \
+    '$0 ~ "^[[:space:]]*" key "[[:space:]]*=" {print $2; exit}' \
     "$CONFIG_DIR/config.$1.toml" 2>/dev/null || true
 }
 
@@ -77,17 +128,18 @@ vram_line() {
 # Absent numbers are emitted as JSON null rather than 0, so a machine reader can
 # tell "no GPU visible" apart from "GPU holding nothing".
 status_json() {
-  local mode service cpu_model gpu_model
+  local mode service cpu_model gpu_model lang
   mode=$(current_mode)
   service=$(systemctl --user is-active voxtype 2>/dev/null || echo unknown)
+  lang=$(value_for "$mode" language)
   # Both models, not just the active one: the bar widget offers a choice
   # between the two modes and names the model each one would load.
   cpu_model=$(model_for cpu)
   gpu_model=$(model_for gpu)
   read_vram
-  printf '{"mode":"%s","model":"%s","models":{"cpu":"%s","gpu":"%s"},"service":"%s","vram_mb":%s,"gpu_free_mb":%s}\n' \
+  printf '{"mode":"%s","model":"%s","models":{"cpu":"%s","gpu":"%s"},"language":"%s","service":"%s","vram_mb":%s,"gpu_free_mb":%s}\n' \
     "$mode" "$( [[ $mode == gpu ]] && echo "$gpu_model" || echo "$cpu_model" )" \
-    "$cpu_model" "$gpu_model" "$service" \
+    "$cpu_model" "$gpu_model" "$lang" "$service" \
     "$( ((HAS_GPU)) && echo "$VRAM_USED" || echo null )" \
     "$( ((HAS_GPU)) && echo "$VRAM_FREE" || echo null )"
 }
@@ -127,6 +179,53 @@ apply() {
 case "${1:-status}" in
   cpu|gpu) apply "$1" ;;
   toggle)  [[ $(current_mode) == gpu ]] && apply cpu || apply gpu ;;
+
+  models)
+    if [[ ${2:-} == --json ]]; then
+      list_models | awk 'BEGIN{printf "["} {printf "%s\"%s\"", (NR>1 ? "," : ""), $0} END{print "]"}'
+    else
+      list_models
+    fi
+    ;;
+
+  set-model)
+    require_mode "${2:-}"
+    [[ -n ${3:-} ]] || { echo "usage: voxtype-mode set-model <cpu|gpu> <model>" >&2; exit 1; }
+    if ! list_models | grep -qx -- "$3"; then
+      echo "model '$3' is not installed in $MODEL_DIR. Available:" >&2
+      list_models | sed 's/^/  /' >&2
+      exit 1
+    fi
+    set_key "$2" model "$3"
+    echo "$2 mode → model $3"
+    # The daemon reads the model once, at startup. Changing the mode you are
+    # currently in therefore does nothing until it restarts — so restart it,
+    # rather than leaving the config and the running daemon disagreeing.
+    [[ $(current_mode) == "$2" ]] && apply "$2"
+    ;;
+
+  set-language)
+    [[ -n ${3:-} ]] || { echo "usage: voxtype-mode set-language <cpu|gpu|all> <lang>" >&2; exit 1; }
+    case "${2:-}" in
+      all)
+        set_key cpu language "$3"
+        set_key gpu language "$3"
+        echo "both modes → language $3"
+        apply "$(current_mode)"
+        ;;
+      cpu|gpu)
+        set_key "$2" language "$3"
+        echo "$2 mode → language $3"
+        [[ $(current_mode) == "$2" ]] && apply "$2"
+        ;;
+      *) echo "expected mode 'cpu', 'gpu' or 'all', got '${2:-}'" >&2; exit 1 ;;
+    esac
+    ;;
+
+  config)
+    require_mode "${2:-}"
+    echo "$CONFIG_DIR/config.$2.toml"
+    ;;
   status)
     if [[ ${2:-} == --json ]]; then status_json; exit 0; fi
     mode=$(current_mode)
