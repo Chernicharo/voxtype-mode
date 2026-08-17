@@ -17,12 +17,15 @@ DEFAULT_MODE="${DEFAULT_MODE:-cpu}"
 
 usage() {
   cat <<'USAGE'
-Usage: voxtype-mode [cpu|gpu|toggle|status]
+Usage: voxtype-mode [cpu|gpu|toggle|status] [--json]
 
   cpu      Small model on the CPU. Frees all VRAM — use before gaming.
   gpu      Large model on the GPU. Best accuracy.
   toggle   Switch to the other mode.
   status   Show active mode, model and VRAM usage (default).
+
+  --json   With 'status', print machine-readable output instead of text.
+           Numeric fields are null when nvidia-smi is unavailable.
 USAGE
 }
 
@@ -37,14 +40,52 @@ model_for() {
     "$CONFIG_DIR/config.$1.toml" 2>/dev/null || true
 }
 
-vram_line() {
+# Both readers below need the same two numbers, and nvidia-smi is slow enough
+# that querying it twice per invocation is worth avoiding — so this fills
+# globals instead of printing.
+#
+# HAS_GPU distinguishes the two ways a number can be missing. No nvidia-smi at
+# all is unknown; nvidia-smi with no compute row for our PID means voxtype is
+# genuinely holding nothing — which is the whole point of CPU mode, so it must
+# report 0 and not "unknown".
+HAS_GPU=0
+VRAM_USED=""
+VRAM_FREE=""
+
+read_vram() {
+  HAS_GPU=0
+  VRAM_USED=""
+  VRAM_FREE=""
   command -v nvidia-smi >/dev/null 2>&1 || return 0
-  local pid used free
+  local pid
   pid=$(systemctl --user show -p MainPID --value voxtype 2>/dev/null || echo 0)
-  used=$(nvidia-smi --query-compute-apps=pid,used_memory --format=csv,noheader,nounits 2>/dev/null |
-         awk -F', ' -v p="$pid" '$1 == p { print $2 }')
-  free=$(nvidia-smi --query-gpu=memory.free --format=csv,noheader,nounits 2>/dev/null | head -1)
-  echo "voxtype VRAM: ${used:-0} MiB   |   GPU free: ${free:-?} MiB"
+  VRAM_USED=$(nvidia-smi --query-compute-apps=pid,used_memory --format=csv,noheader,nounits 2>/dev/null |
+              awk -F', ' -v p="$pid" '$1 == p { print $2 }')
+  VRAM_FREE=$(nvidia-smi --query-gpu=memory.free --format=csv,noheader,nounits 2>/dev/null | head -1)
+  [[ -n $VRAM_FREE ]] || return 0
+  HAS_GPU=1
+  VRAM_USED=${VRAM_USED:-0}
+}
+
+vram_line() {
+  read_vram
+  ((HAS_GPU)) || return 0
+  echo "voxtype VRAM: $VRAM_USED MiB   |   GPU free: $VRAM_FREE MiB"
+}
+
+# Consumed by the Omarchy bar widget (github.com/Chernicharo/omarchy-plugin-voxtype-mode).
+# Absent numbers are emitted as JSON null rather than 0, so a machine reader can
+# tell "no GPU visible" apart from "GPU holding nothing".
+status_json() {
+  local mode model service
+  mode=$(current_mode)
+  model=$(model_for "$mode")
+  service=$(systemctl --user is-active voxtype 2>/dev/null || echo unknown)
+  read_vram
+  printf '{"mode":"%s","model":"%s","service":"%s","vram_mb":%s,"gpu_free_mb":%s}\n' \
+    "$mode" "$model" "$service" \
+    "$( ((HAS_GPU)) && echo "$VRAM_USED" || echo null )" \
+    "$( ((HAS_GPU)) && echo "$VRAM_FREE" || echo null )"
 }
 
 apply() {
@@ -83,6 +124,7 @@ case "${1:-status}" in
   cpu|gpu) apply "$1" ;;
   toggle)  [[ $(current_mode) == gpu ]] && apply cpu || apply gpu ;;
   status)
+    if [[ ${2:-} == --json ]]; then status_json; exit 0; fi
     mode=$(current_mode)
     echo "Mode:    ${mode^^}"
     echo "Service: $(systemctl --user is-active voxtype 2>/dev/null || echo unknown)"
